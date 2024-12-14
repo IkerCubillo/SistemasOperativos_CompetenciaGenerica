@@ -1,0 +1,10 @@
+Instalación Git:
+evita usar para evitar sudo ($ su)
+$ sudo apt-get update
+$ sudo apt-get install git
+$ cd /home/tu_usuario/proyectos
+$ git clone https://github.com/IkerCubillo/SistemasOperativos_CompetenciaGenerica.git
+$ git config --global user.name "Tu Nombre"
+$ git config --global user.email "tuemail@example.com"
+
+gcc -o fabrica fabrica.c -lpthread -lrt
