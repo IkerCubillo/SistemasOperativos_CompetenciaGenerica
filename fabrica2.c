@@ -80,6 +80,9 @@ void* empaquetar(void* args) {
         // Enviar mensaje al almacén
         snprintf(msg, MSG_SIZE, "Producto listo");
         mq_send(cola_fabrica, msg, strlen(msg) + 1, 0);
+
+        // Reiniciar el flujo permitiendo ensamblar nuevamente
+        sem_post(&sem_ensamblar);
     }
 }
 
