@@ -49,7 +49,6 @@ void finalizar_recursos(int sig) {
 void* ensamblar(void* args) {
     printf("[Ensamblaje] Comienzo de mi ejecución...\n");
     while (1) {
-        sem_wait(&sem_ensamblar); // Asegurar que se inicie solo cuando sea permitido
         printf("[Ensamblaje] Ensamblando producto...\n");
         sleep(tiempo_aleatorio(3, 8));
         printf("[Ensamblaje] Producto ensamblado.\n");
