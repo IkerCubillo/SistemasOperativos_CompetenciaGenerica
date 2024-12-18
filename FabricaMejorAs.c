@@ -24,7 +24,7 @@ pid_t pid_almacen, pid_fabrica, pid_ventas;
 
 // Variables globales
 int unidades_producto = 0; // Stock de productos en el almacén
-mqd_t cola_ventas, cola_fabrica;
+mqd_t cola_ventas;
 
 // Funciones auxiliares
 int tiempo_aleatorio(int min, int max) {
@@ -39,11 +39,16 @@ void finalizar_recursos(int sig) {
 
     mq_close(cola_ventas);
     mq_unlink(COLA_VENTAS);
-    mq_close(cola_fabrica);
-    mq_unlink(COLA_FABRICA);
 
     printf("\n[Sistema] Recursos liberados correctamente. Finalizando...\n");
     exit(0);
+}
+
+void manejador_senal(int sig) {
+    if (sig == SIGUSR1) {
+        unidades_producto++;
+        printf("[Almacén] Producto recibido. Stock actual: %d\n", unidades_producto);
+    }
 }
 
 void* ensamblar(void* args) {
@@ -68,17 +73,15 @@ void* pintar(void* args) {
 }
 
 void* empaquetar(void* args) {
-    char msg[MSG_SIZE];
     printf("[Empaquetado] Comienzo de mi ejecución...\n");
     while (1) {
         sem_wait(&sem_empaquetar); // Esperar un producto pintado
         printf("[Empaquetado] Empaquetando producto...\n");
         sleep(tiempo_aleatorio(2, 5));
-        printf("[Empaquetado] Producto empaquetado. Enviando al almacén...\n");
+        printf("[Empaquetado] Producto empaquetado. Notificando al almacén...\n");
 
-        // Enviar mensaje al almacén
-        snprintf(msg, MSG_SIZE, "Producto listo");
-        mq_send(cola_fabrica, msg, strlen(msg) + 1, 0);
+        // Enviar señal al almacén
+        kill(pid_almacen, SIGUSR1);
     }
 }
 
@@ -91,6 +94,10 @@ int main(int argc, char* argv[]) {
     sa_finalizar.sa_handler = finalizar_recursos;
     sigaction(SIGINT, &sa_finalizar, NULL);
 
+    struct sigaction sa_almacen;
+    sa_almacen.sa_handler = manejador_senal;
+    sigaction(SIGUSR1, &sa_almacen, NULL);
+
     // Inicializar semáforos
     sem_init(&sem_ensamblar, 0, 1);
     sem_init(&sem_pintar, 0, 0);
@@ -99,10 +106,9 @@ int main(int argc, char* argv[]) {
     // Configurar colas de mensajes
     struct mq_attr attr = { .mq_flags = O_NONBLOCK, .mq_maxmsg = MAX_MSG, .mq_msgsize = MSG_SIZE, .mq_curmsgs = 0 };
     cola_ventas = mq_open(COLA_VENTAS, O_CREAT | O_RDWR | O_NONBLOCK, 0644, &attr);
-    cola_fabrica = mq_open(COLA_FABRICA, O_CREAT | O_RDWR | O_NONBLOCK, 0644, &attr);
 
-    if (cola_ventas == -1 || cola_fabrica == -1) {
-        perror("Error creando colas de mensajes");
+    if (cola_ventas == -1) {
+        perror("Error creando cola de mensajes de ventas");
         exit(1);
     }
 
@@ -148,15 +154,8 @@ int main(int argc, char* argv[]) {
         }
     } else {
         printf("[Almacén] Comienzo mi ejecución...\n");
-        char msg_fabrica[MSG_SIZE];
         char msg_ventas[MSG_SIZE];
         while (1) {
-            // Procesar mensajes de la fábrica
-            if (mq_receive(cola_fabrica, msg_fabrica, MSG_SIZE, NULL) > 0) {
-                unidades_producto++;
-                printf("[Almacén] Producto recibido. Stock actual: %d\n", unidades_producto);
-            }
-
             // Procesar órdenes de ventas
             if (mq_receive(cola_ventas, msg_ventas, MSG_SIZE, NULL) > 0) {
                 printf("[Almacén] Orden de ventas recibida: %s\n", msg_ventas);
@@ -167,6 +166,8 @@ int main(int argc, char* argv[]) {
                     printf("[Almacén] Sin stock para atender la orden.\n");
                 }
             }
+
+            pause(); // Esperar señales de la fábrica
         }
     }
 
