@@ -14,26 +14,19 @@
 #define MAX_MSG 10
 #define MSG_SIZE 64
 #define COLA_VENTAS "/cola_ventas"
-#define COLA_FABRICA "/cola_fabrica"
 
-// Semáforos
-sem_t sem_ensamblar, sem_pintar, sem_empaquetar;
-
-// PID de los procesos
+// Declaraciones iniciales
+sem_t sem_pintar, sem_empaquetar;
 pid_t pid_almacen, pid_fabrica, pid_ventas;
-
-// Variables globales
-int unidades_producto = 0; // Stock de productos en el almacén
+int unidades_producto = 0; 
 mqd_t cola_ventas;
 
-// Funciones auxiliares
+//Funciones adicionales para el funcionamiento de los procesos
 int tiempo_aleatorio(int min, int max) {
     return rand() % (max - min + 1) + min;
 }
 
 void finalizar_recursos(int sig) {
-    // Destruir semáforos y colas de mensajes
-    sem_destroy(&sem_ensamblar);
     sem_destroy(&sem_pintar);
     sem_destroy(&sem_empaquetar);
 
@@ -51,45 +44,43 @@ void manejador_senal(int sig) {
     }
 }
 
+//Funciones principales
 void* ensamblar(void* args) {
     printf("[Ensamblaje] Comienzo de mi ejecución...\n");
     while (1) {
         printf("[Ensamblaje] Ensamblando producto...\n");
         sleep(tiempo_aleatorio(3, 8));
         printf("[Ensamblaje] Producto ensamblado.\n");
-        sem_post(&sem_pintar); // Notificar al hilo de pintado
+        sem_post(&sem_pintar); 
     }
 }
 
 void* pintar(void* args) {
     printf("[Pintado] Comienzo de mi ejecución...\n");
     while (1) {
-        sem_wait(&sem_pintar); // Esperar un producto ensamblado
+        sem_wait(&sem_pintar); 
         printf("[Pintado] Pintando producto...\n");
         sleep(tiempo_aleatorio(2, 4));
         printf("[Pintado] Producto pintado.\n");
-        sem_post(&sem_empaquetar); // Notificar al hilo de empaquetado
+        sem_post(&sem_empaquetar); 
     }
 }
 
 void* empaquetar(void* args) {
     printf("[Empaquetado] Comienzo de mi ejecución...\n");
     while (1) {
-        sem_wait(&sem_empaquetar); // Esperar un producto pintado
+        sem_wait(&sem_empaquetar); 
         printf("[Empaquetado] Empaquetando producto...\n");
         sleep(tiempo_aleatorio(2, 5));
         printf("[Empaquetado] Producto empaquetado. Notificando al almacén...\n");
 
-        // Enviar señal al almacén
         kill(pid_almacen, SIGUSR1);
     }
 }
 
 int main(int argc, char* argv[]) {
-    // Inicializar generador de números aleatorios
     srand(time(NULL));
 
-    // Configurar manejo de señales
     struct sigaction sa_finalizar;
     sa_finalizar.sa_handler = finalizar_recursos;
     sigaction(SIGINT, &sa_finalizar, NULL);
@@ -98,12 +89,9 @@ int main(int argc, char* argv[]) {
     sa_almacen.sa_handler = manejador_senal;
     sigaction(SIGUSR1, &sa_almacen, NULL);
 
-    // Inicializar semáforos
-    sem_init(&sem_ensamblar, 0, 1);
     sem_init(&sem_pintar, 0, 0);
     sem_init(&sem_empaquetar, 0, 0);
 
-    // Configurar colas de mensajes
     struct mq_attr attr = { .mq_flags = O_NONBLOCK, .mq_maxmsg = MAX_MSG, .mq_msgsize = MSG_SIZE, .mq_curmsgs = 0 };
     cola_ventas = mq_open(COLA_VENTAS, O_CREAT | O_RDWR | O_NONBLOCK, 0644, &attr);
 
@@ -112,7 +100,6 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
 
-    // Crear procesos
     pid_almacen = fork();
 
     if (pid_almacen != 0) {
@@ -121,15 +108,12 @@ int main(int argc, char* argv[]) {
             pid_ventas = fork();
             if (pid_ventas != 0) {
                 /* Proceso padre */
-                pause(); // Esperar señal SIGINT
-                printf("[Padre] Enviando señal SIGINT a los hijos...\n");
+                pause(); 
+
                 kill(pid_almacen, SIGINT);
                 kill(pid_fabrica, SIGINT);
                 kill(pid_ventas, SIGINT);
 
-                wait(NULL);
-                wait(NULL);
-                wait(NULL);
             } else {
                 /* Proceso Ventas */
                 char orden[MSG_SIZE];
@@ -154,9 +138,13 @@ int main(int argc, char* argv[]) {
         }
     } else {
         printf("[Almacén] Comienzo mi ejecución...\n");
+        sigset_t sigset;
+        sigemptyset(&sigset);
+        sigaddset(&sigset, SIGUSR1);
+        sigprocmask(SIG_BLOCK, &sigset, NULL);
+
         char msg_ventas[MSG_SIZE];
         while (1) {
-            // Procesar órdenes de ventas
             if (mq_receive(cola_ventas, msg_ventas, MSG_SIZE, NULL) > 0) {
                 printf("[Almacén] Orden de ventas recibida: %s\n", msg_ventas);
                 if (unidades_producto > 0) {
@@ -166,10 +154,14 @@ int main(int argc, char* argv[]) {
                     printf("[Almacén] Sin stock para atender la orden.\n");
                 }
             }
-
-            pause(); // Esperar señales de la fábrica
+            int sig;
+            if (sigwait(&sigset, &sig) == 0) {
+                if (sig == SIGUSR1) {
+                    unidades_producto++;
+                    printf("[Almacén] Producto recibido. Stock actual: %d\n", unidades_producto);
+                }
+            }
         }
     }
-
     exit(0);
 }
