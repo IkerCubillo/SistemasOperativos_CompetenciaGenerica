@@ -21,7 +21,7 @@ pid_t pid_almacen, pid_fabrica, pid_ventas;
 int unidades_producto = 0; 
 mqd_t cola_ventas;
 
-// Funciones auxiliares para el funcionamiento de los procesos
+//Funciones adicionales para el funcionamiento de los procesos
 int tiempo_aleatorio(int min, int max) {
     return rand() % (max - min + 1) + min;
 }
@@ -62,7 +62,7 @@ void* pintar(void* args) {
         printf("[Pintado] Pintando producto...\n");
         sleep(tiempo_aleatorio(2, 4));
         printf("[Pintado] Producto pintado.\n");
-        sem_post(&sem_empaquetar);
+        sem_post(&sem_empaquetar); 
     }
 }
 
@@ -79,7 +79,6 @@ void* empaquetar(void* args) {
 }
 
 int main(int argc, char* argv[]) {
-    
     srand(time(NULL));
 
     struct sigaction sa_finalizar;
@@ -110,7 +109,7 @@ int main(int argc, char* argv[]) {
             if (pid_ventas != 0) {
                 /* Proceso padre */
                 pause(); 
-                printf("[Padre] Enviando señal SIGINT a los hijos...\n");
+
                 kill(pid_almacen, SIGINT);
                 kill(pid_fabrica, SIGINT);
                 kill(pid_ventas, SIGINT);
@@ -139,6 +138,11 @@ int main(int argc, char* argv[]) {
         }
     } else {
         printf("[Almacén] Comienzo mi ejecución...\n");
+        sigset_t sigset;
+        sigemptyset(&sigset);
+        sigaddset(&sigset, SIGUSR1);
+        sigprocmask(SIG_BLOCK, &sigset, NULL);
+
         char msg_ventas[MSG_SIZE];
         while (1) {
             if (mq_receive(cola_ventas, msg_ventas, MSG_SIZE, NULL) > 0) {
@@ -150,7 +154,13 @@ int main(int argc, char* argv[]) {
                     printf("[Almacén] Sin stock para atender la orden.\n");
                 }
             }
-            pause(); 
+            int sig;
+            if (sigwait(&sigset, &sig) == 0) {
+                if (sig == SIGUSR1) {
+                    unidades_producto++;
+                    printf("[Almacén] Producto recibido. Stock actual: %d\n", unidades_producto);
+                }
+            }
         }
     }
     exit(0);
